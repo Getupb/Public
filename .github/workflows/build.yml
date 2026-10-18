@@ -16,8 +16,11 @@ jobs:
           distribution: temurin
           java-version: 17
       - run: npm install
-      - run: npx cap add android
+      - run: '[ -d android ] || npx cap add android'
       - run: npx cap sync android
+      - run: |
+          M=android/app/src/main/AndroidManifest.xml
+          grep -q TTS_SERVICE $M || sed -i 's#</manifest>#<queries><intent><action android:name="android.intent.action.TTS_SERVICE"/></intent></queries></manifest>#' $M
       - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
