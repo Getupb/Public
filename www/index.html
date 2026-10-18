@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>语伴</title>
+<style>
+:root{--bg:#eef1f6;--card:#fff;--ink:#1b2433;--mute:#667085;--acc:#3b5bdb;--acc2:#e4e9fb;--line:#d9dfea;--hi:#fff0b3;color-scheme:light}
+@media(prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1b2029;--ink:#e6e9f0;--mute:#98a1b3;--acc:#8ea4ff;--acc2:#252d45;--line:#2c3342;--hi:#5b4d12;color-scheme:dark}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+#app{max-width:680px;margin:0 auto;padding:12px 16px 40px}
+header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+header h1{flex:1;margin:0;font-size:22px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button,select,input,textarea{font:inherit;color:inherit}
+button{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:8px 14px;cursor:pointer}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+@media(prefers-color-scheme:dark){button.pri{color:#10131a}}
+button:disabled{opacity:.45}
+.ic{padding:6px 12px;font-size:18px}
+.row{display:flex;gap:10px;margin-bottom:14px}
+.row button{flex:1;padding:12px}
+.card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.card .ct{display:flex;gap:8px;align-items:center}
+.card b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card p{margin:4px 0 0;color:var(--mute);font-size:14px}
+.tag{font-size:12px;color:var(--acc);background:var(--acc2);border-radius:8px;padding:0 8px}
+.del{position:absolute;right:10px;bottom:8px;font-size:12px;padding:2px 8px;color:var(--mute)}
+.empty{color:var(--mute);text-align:center;margin-top:40px}
+#reader{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;font:19px/2.05 "Noto Serif CJK SC","Songti SC",Georgia,serif}
+#reader p{margin:0 0 14px}
+.s{border-radius:6px;padding:2px 0}
+.s.on{background:var(--hi)}
+.sp{font:normal 12px/1 system-ui,sans-serif;color:var(--acc);background:var(--acc2);border-radius:10px;padding:3px 7px;margin-right:4px;cursor:pointer;vertical-align:middle}
+.w{border-radius:4px;cursor:pointer}
+.w:active{background:var(--acc2)}
+.tools{margin-top:14px;display:grid;gap:10px}
+.tools h3{margin:0;font-size:14px;color:var(--mute);font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{padding:6px 12px;font-size:14px}
+.fr{display:flex;gap:8px}
+.fr input{flex:1;min-width:0}
+input,select,textarea{width:100%;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+textarea{min-height:170px;resize:vertical}
+label{display:block;font-size:13px;color:var(--mute);margin:10px 0 4px}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:flex-end;justify-content:center;z-index:5}
+#modal.show{display:flex}
+#sheet{background:var(--bg);width:100%;max-width:680px;max-height:88%;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom,0px))}
+#sheet h2{margin:0 0 6px;font-size:18px}
+#sheet .go{width:100%;margin-top:16px;padding:12px}
+#busy{position:fixed;inset:0;background:rgba(0,0,0,.5);color:#fff;display:none;align-items:center;justify-content:center;text-align:center;padding:30px;z-index:9}
+#busy.show{display:flex}
+#toast{position:fixed;left:50%;bottom:calc(30px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);max-width:88%;background:#222;color:#fff;border-radius:10px;padding:10px 16px;font-size:14px;display:none;z-index:10}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="modal"><div id="sheet"></div></div>
+<div id="busy"><div id="busyt">生成中…推理模型可能需要几十秒</div></div>
+<div id="toast"></div>
+<script>
+const LANGS={zh:{n:'中文',v:'zh-CN'},en:{n:'English',v:'en-US'},ja:{n:'日本語',v:'ja-JP'},ko:{n:'한국어',v:'ko-KR'}};
+const $=s=>document.querySelector(s);
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let cfg=store.get('cfg',{base:'',key:'',model:''});
+let lib=store.get('lib',[]);
+let cur=null,curSents=[],rate=1,playing=false,run=0;
+const saveLib=()=>store.set('lib',lib);
+const langOpts=sel=>Object.keys(LANGS).map(k=>`<option value="${k}"${k===sel?' selected':''}>${LANGS[k].n}</option>`).join('');
+
+/* ---------- 语音 ---------- */
+const synth=window.speechSynthesis;let voices=[];
+if(synth){voices=synth.getVoices();synth.onvoiceschanged=()=>{voices=synth.getVoices()}}
+function pickVoice(l){const v=LANGS[l].v;return voices.find(x=>x.lang.replace('_','-')===v)||voices.find(x=>x.lang.toLowerCase().startsWith(l))}
+function say(text,lang,cb){
+  if(!synth){toast('当前环境不支持语音播报');return}
+  const u=new SpeechSynthesisUtterance(text);u.lang=LANGS[lang].v;
+  const vo=pickVoice(lang);if(vo)u.voice=vo;else if(voices.length)toast('系统里没有'+LANGS[lang].n+'语音，请到系统设置安装语音数据');
+  u.rate=rate;u.onend=()=>cb&&cb(true);u.onerror=()=>cb&&cb(false);
+  synth.speak(u)
+}
+function hi(el){clearHi();el&&el.classList.add('on');el&&el.scrollIntoView({block:'center',behavior:'smooth'})}
+function clearHi(){document.querySelectorAll('.s.on').forEach(e=>e.classList.remove('on'))}
+function stopAll(){run++;playing=false;if(synth)synth.cancel();clearHi();updPlay()}
+function updPlay(){const b=$('#play');if(b)b.textContent=playing?'■ 停止':'▶ 全文'}
+function playAll(){
+  if(playing){stopAll();return}
+  const t=lib.find(x=>x.id===cur),list=[...document.querySelectorAll('.s')];
+  playing=true;const my=++run;updPlay();let i=0;
+  const next=()=>{
+    if(my!==run)return;
+    if(i>=list.length){playing=false;clearHi();updPlay();return}
+    const el=list[i++];hi(el);
+    say(curSents[el.dataset.i],t.lang,ok=>{if(my!==run)return;if(ok)next();else stopAll()})
+  };
+  next()
+}
+
+/* ---------- 分句分词 ---------- */
+function sents(str,l){
+  try{return [...new Intl.Segmenter(LANGS[l].v,{granularity:'sentence'}).segment(str)].map(x=>x.segment.trim()).filter(Boolean)}
+  catch(e){return (str.match(/[^。！？.!?]+[。！？.!?]*/g)||[str]).map(s=>s.trim()).filter(Boolean)}
+}
+function words(str,l){
+  try{return [...new Intl.Segmenter(LANGS[l].v,{granularity:'word'}).segment(str)].map(x=>({t:x.segment,w:!!x.isWordLike}))}
+  catch(e){return str.split(/(\s+)/).filter(Boolean).map(t=>({t,w:/\S/.test(t)}))}
+}
+
+/* ---------- 接口 ---------- */
+const SYS='你是语言学习材料的编写助手。只输出要求的内容，不要解释、不要 markdown、不要输出思考过程。';
+const FMT='输出格式：第一行只写标题（用该语言），空一行，之后是正文，正文可分 2-4 段。';
+async function ask(prompt){
+  if(!cfg.base||!cfg.key||!cfg.model){openSettings();throw new Error('请先填写 API 信息')}
+  let url=cfg.base.trim().replace(/\/+$/,'');
+  try{if(new URL(url).pathname==='/')url+='/v1'}catch(e){throw new Error('接口地址格式不对，需以 http:// 或 https:// 开头')}
+  let resp;
+  if(/\/responses$/.test(url))resp=true;
+  else if(/\/chat\/completions$/.test(url))resp=false;
+  else{resp=(cfg.mode||'responses')!=='chat';url+=resp?'/responses':'/chat/completions'}
+  const body=resp?{model:cfg.model.trim(),instructions:SYS,input:prompt}:{model:cfg.model.trim(),messages:[{role:'system',content:SYS},{role:'user',content:prompt}]};
+  let r;
+  try{r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.key.trim()},body:JSON.stringify(body)})}
+  catch(e){throw new Error('连不上 '+url+'（'+(e&&e.message||e)+'）。可能原因：服务端未开放跨域(CORS)、地址写错、网络或 VPN 拦截、在应用内预览而不是浏览器里打开')}
+  if(!r.ok)throw new Error('接口返回 '+r.status+'：'+(await r.text()).slice(0,100));
+  const j=await r.json();
+  let c=j.output_text||'';
+  if(!c&&Array.isArray(j.output))c=j.output.filter(o=>o.type==='message').map(o=>(o.content||[]).map(p=>p.text||'').join('')).join('\n');
+  if(!c&&j.choices&&j.choices[0]&&j.choices[0].message)c=j.choices[0].message.content||'';
+  c=c.replace(/<think>[\s\S]*?<\/think>/g,'').replace(/^```\w*\n?|\n?```$/g,'').trim();
+  if(!c)throw new Error('模型没有返回内容');
+  return c
+}
+function parse(c,fb){
+  const i=c.indexOf('\n');
+  if(i>0&&i<60){
+    const t=c.slice(0,i).replace(/^#+\s*/,'').replace(/^(标题|Title|タイトル|제목)\s*[:：]\s*/i,'').trim(),b=c.slice(i).trim();
+    if(t&&b)return{title:t,text:b}
+  }
+  return{title:fb,text:c}
+}
+async function job(fn){
+  $('#busy').classList.add('show');
+  try{await fn()}catch(e){toast(e.message)}
+  $('#busy').classList.remove('show')
+}
+function addItem(o,lang){const it={id:Date.now().toString(36),lang,title:o.title,text:o.text};lib.unshift(it);saveLib();return it.id}
+
+/* ---------- 界面 ---------- */
+let tt;function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(tt);tt=setTimeout(()=>t.style.display='none',3200)}
+function modal(html){$('#sheet').innerHTML=html;$('#modal').classList.add('show')}
+function closeModal(){$('#modal').classList.remove('show')}
+
+function home(){
+  stopAll();cur=null;
+  $('#app').innerHTML=`<header><h1>语伴</h1><button class="ic" id="gear">⚙</button></header>
+  <div class="row"><button class="pri" id="bGen">随机生成短文</button><button id="bImp">导入短文</button></div>
+  ${lib.length?lib.map(x=>`<div class="card" data-id="${x.id}"><div class="ct"><b>${esc(x.title)}</b><span class="tag">${LANGS[x.lang].n}</span></div><p>${esc(x.text.replace(/\s+/g,' ').slice(0,60))}</p><button class="del" data-del="${x.id}">删除</button></div>`).join(''):'<p class="empty">文库是空的，先生成或导入一篇短文。</p>'}`
+}
+function reader(id){
+  stopAll();cur=id;const t=lib.find(x=>x.id===id);curSents=[];
+  const body=t.text.split(/\n+/).filter(s=>s.trim()).map(p=>'<p>'+sents(p,t.lang).map(s=>{
+    const i=curSents.push(s)-1;
+    return `<span class="s" data-i="${i}"><i class="sp">▶</i>`+words(s,t.lang).map(w=>w.w?`<span class="w">${esc(w.t)}</span>`:esc(w.t)).join('')+'</span> '
+  }).join('')+'</p>').join('');
+  const others=Object.keys(LANGS).filter(k=>k!==t.lang);
+  $('#app').innerHTML=`<header><button class="ic" id="back">←</button><h1>${esc(t.title)}</h1><select id="rate" style="width:auto"><option value="0.6">慢</option><option value="0.8">稍慢</option><option value="1" selected>正常</option><option value="1.2">快</option></select><button class="pri" id="play">▶ 全文</button></header>
+  <div id="reader">${body}</div>
+  <div class="tools">
+    <h3>转成其他语言</h3><div class="chips">${others.map(k=>`<button data-tr="${k}">${LANGS[k].n}</button>`).join('')}</div>
+    <h3>改编这篇短文</h3><div class="chips">${['更简单','更有难度','更口语','更正式','改成对话体','缩短一半'].map(s=>`<button data-ad="${s}">${s}</button>`).join('')}</div>
+    <div class="fr"><input id="adc" placeholder="自定义要求，例如：加入旅行场景"><button id="adg">改编</button></div>
+  </div>`;
+  $('#rate').value=String(rate)
+}
+function openSettings(){
+  modal(`<h2>API 设置</h2><p style="color:var(--mute);font-size:13px;margin:0">仅保存在本机浏览器中。需 OpenAI 兼容接口。</p>
+  <label>接口地址</label><input id="cb" placeholder="https://example.com/v1" value="${esc(cfg.base)}">
+  <label>API Key</label><input id="ck" type="password" value="${esc(cfg.key)}">
+  <label>模型名称</label><input id="cm" value="${esc(cfg.model)}">
+  <label>接口类型</label><select id="cx"><option value="responses"${(cfg.mode||'responses')==='responses'?' selected':''}>Responses（/v1/responses）</option><option value="chat"${cfg.mode==='chat'?' selected':''}>Chat Completions</option></select>
+  <button class="go" id="testCfg">保存并测试连接</button>
+  <button class="pri go" id="saveCfg" style="margin-top:10px">保存</button>`)
+}
+function openGen(){
+  modal(`<h2>随机生成短文</h2><label>语言</label><select id="gl">${langOpts('en')}</select>
+  <label>难度</label><select id="gv"><option>入门</option><option selected>中级</option><option>高级</option></select>
+  <label>篇幅</label><select id="gn"><option value="约 100 词（中日韩约 150 字）">短</option><option value="约 200 词（中日韩约 300 字）">中</option></select>
+  <label>主题（可留空，随机）</label><input id="gt" placeholder="例如：旅行、美食、职场">
+  <button class="pri go" id="goGen">生成</button>`)
+}
+function openImp(){
+  modal(`<h2>导入短文</h2><label>语言</label><select id="il">${langOpts('en')}</select>
+  <label>标题（可留空）</label><input id="it"><label>正文</label><textarea id="ix" placeholder="粘贴短文…"></textarea>
+  <button class="pri go" id="goImp">保存到文库</button>`)
+}
+
+/* ---------- 事件 ---------- */
+document.addEventListener('click',e=>{
+  const t=e.target,c=s=>t.closest(s);
+  if(t.id==='modal'){closeModal();return}
+  if(c('#gear'))return openSettings();
+  if(c('#bGen'))return openGen();
+  if(c('#bImp'))return openImp();
+  if(c('#back'))return home();
+  if(c('#play'))return playAll();
+  const del=c('[data-del]');
+  if(del){if(confirm('删除这篇短文？')){lib=lib.filter(x=>x.id!==del.dataset.del);saveLib();home()}return}
+  const card=c('.card');if(card)return reader(card.dataset.id);
+  if(t.id==='saveCfg'){cfg={base:$('#cb').value,key:$('#ck').value,model:$('#cm').value,mode:$('#cx').value};store.set('cfg',cfg);closeModal();toast('已保存');return}
+  if(t.id==='testCfg'){
+    cfg={base:$('#cb').value,key:$('#ck').value,model:$('#cm').value,mode:$('#cx').value};store.set('cfg',cfg);
+    job(async()=>{const r=await ask('只回复两个字母：OK');toast('连接成功，模型回复：'+r.slice(0,30))});return
+  }
+  if(t.id==='goImp'){
+    const x=$('#ix').value.trim();if(!x)return toast('请先粘贴正文');
+    const id=addItem({title:$('#it').value.trim()||x.replace(/\s+/g,' ').slice(0,14),text:x},$('#il').value);closeModal();reader(id);return
+  }
+  if(t.id==='goGen'){
+    const l=$('#gl').value,v=$('#gv').value,n=$('#gn').value,tp=$('#gt').value.trim();closeModal();
+    job(async()=>{
+      const c=await ask(`请用${LANGS[l].n}写一篇适合${v}水平学习者的短文，${n}。主题：${tp||'随机选一个生活化、有趣的主题'}。${FMT}`);
+      reader(addItem(parse(c,'短文'),l))
+    });return
+  }
+  const cu=lib.find(x=>x.id===cur);
+  const tr=c('[data-tr]');
+  if(tr&&cu){const l=tr.dataset.tr;job(async()=>{
+    const c2=await ask(`把下面这篇短文翻译成${LANGS[l].n}，保持原意和段落结构，表达自然。${FMT}\n\n---\n${cu.text}`);
+    reader(addItem(parse(c2,cu.title),l))});return}
+  const ad=c('[data-ad]')||(t.id==='adg'?{dataset:{ad:$('#adc').value.trim()}}:null);
+  if(ad&&cu){if(!ad.dataset.ad)return toast('请先写改编要求');job(async()=>{
+    const c2=await ask(`请按要求改编下面这篇短文，语言保持为${LANGS[cu.lang].n}。要求：${ad.dataset.ad}。${FMT}\n\n---\n${cu.text}`);
+    reader(addItem(parse(c2,cu.title),cu.lang))});return}
+  const w=c('.w');if(w&&cu){stopAll();say(w.textContent,cu.lang);return}
+  const sp=c('.sp');if(sp&&cu){stopAll();const s=sp.parentElement;hi(s);say(curSents[s.dataset.i],cu.lang,()=>clearHi())}
+});
+document.addEventListener('change',e=>{if(e.target.id==='rate')rate=parseFloat(e.target.value)});
+home();
+</script>
+</body>
+</html>

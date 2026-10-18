@@ -1,0 +1,9 @@
+{
+  "appId": "com.yuban.app",
+  "appName": "语伴",
+  "webDir": "www",
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  },
+  "android": { "allowMixedContent": true }
+}
