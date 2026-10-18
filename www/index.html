@@ -74,7 +74,16 @@ const langOpts=sel=>Object.keys(LANGS).map(k=>`<option value="${k}"${k===sel?' s
 const synth=window.speechSynthesis;let voices=[];
 if(synth){voices=synth.getVoices();synth.onvoiceschanged=()=>{voices=synth.getVoices()}}
 function pickVoice(l){const v=LANGS[l].v;return voices.find(x=>x.lang.replace('_','-')===v)||voices.find(x=>x.lang.toLowerCase().startsWith(l))}
+let NTTS=null,spTk=0;
+try{if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform()){NTTS=(Capacitor.Plugins&&Capacitor.Plugins.TextToSpeech)||(Capacitor.registerPlugin&&Capacitor.registerPlugin('TextToSpeech'))||null}}catch(e){}
 function say(text,lang,cb){
+  if(NTTS){
+    const tk=++spTk;
+    NTTS.speak({text:text,lang:LANGS[lang].v,rate:rate,pitch:1,volume:1,queueStrategy:0})
+      .then(()=>{if(tk===spTk&&cb)cb(true)})
+      .catch(e=>{if(tk!==spTk)return;toast('朗读失败：'+((e&&e.message)||'请确认系统已安装文字转语音引擎和'+LANGS[lang].n+'语音数据'));if(cb)cb(false)});
+    return
+  }
   if(!synth){toast('当前环境不支持语音播报');return}
   const u=new SpeechSynthesisUtterance(text);u.lang=LANGS[lang].v;
   const vo=pickVoice(lang);if(vo)u.voice=vo;else if(voices.length)toast('系统里没有'+LANGS[lang].n+'语音，请到系统设置安装语音数据');
@@ -83,7 +92,7 @@ function say(text,lang,cb){
 }
 function hi(el){clearHi();el&&el.classList.add('on');el&&el.scrollIntoView({block:'center',behavior:'smooth'})}
 function clearHi(){document.querySelectorAll('.s.on').forEach(e=>e.classList.remove('on'))}
-function stopAll(){run++;playing=false;if(synth)synth.cancel();clearHi();updPlay()}
+function stopAll(){run++;spTk++;playing=false;if(NTTS)NTTS.stop().catch(()=>{});if(synth)synth.cancel();clearHi();updPlay()}
 function updPlay(){const b=$('#play');if(b)b.textContent=playing?'■ 停止':'▶ 全文'}
 function playAll(){
   if(playing){stopAll();return}
